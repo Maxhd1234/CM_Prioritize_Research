@@ -9,7 +9,7 @@ using RimWorld;
 using Verse;
 using Verse.AI;
 
-namespace CM_Prioritize_Research
+namespace KB_Prioritize_Research
 {
     [StaticConstructorOnStartup]
     public static class FloatMenuMakerMap_Patches
@@ -41,7 +41,7 @@ namespace CM_Prioritize_Research
 
                         if (jump.Branches(out Label? branchLabel))
                         {
-                            Log.Message("[CM_Prioritize_Research] - patching to allow research prioritizing.");
+                            Log.Message("[KB_Prioritize_Research] - patching to allow research prioritizing.");
                             jump.opcode = OpCodes.Br;
                         }
                     }

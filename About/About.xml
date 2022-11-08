@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <ModMetaData>
-	<name>Do Your F****** Research - Updated</name>
+	<name>Do Your F****** Research</name>
 	<author>Captain Muscles (Nathan Harbour)</author>
-	<packageId>CaptainMuscles.PrioritizeResearch</packageId>
+	<packageId>KB.PrioritizeResearch</packageId>
 	<url>https://github.com/Khorbos/CM_Prioritize_Research</url>
 	<supportedVersions>
 		<li>1.2</li>

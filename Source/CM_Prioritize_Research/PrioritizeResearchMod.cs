@@ -2,7 +2,7 @@
 using RimWorld;
 using Verse;
 
-namespace CM_Prioritize_Research
+namespace KB_Prioritize_Research
 {
     public class PrioritizeResearchMod : Mod
     {
@@ -11,7 +11,7 @@ namespace CM_Prioritize_Research
 
         public PrioritizeResearchMod(ModContentPack content) : base(content)
         {
-            var harmony = new Harmony("CM_Prioritize_Research");
+            var harmony = new Harmony("KB_Prioritize_Research");
             harmony.PatchAll();
 
             _instance = this;
