@@ -48,6 +48,19 @@ public static class Global
         }
     }
 
+    [HarmonyPatch(typeof(Pawn_JobTracker), nameof(Pawn_JobTracker.StartJob))]
+    public static class Patch_JobTracker_StartJob
+    {
+        public static void Prefix(Pawn_JobTracker __instance, Job newJob)
+        {
+            if (newJob.playerForced && newJob.count != 5134)
+            {
+                Global.stopRn = true;
+            }
+        }
+    }
+
+
     [HarmonyPatch(typeof(PriorityWork), nameof(PriorityWork.GetGizmos))]
     public static class Patch_PriorityWork_GetGizmos
     {
@@ -100,10 +113,10 @@ public static class Global
                 pawn.workSettings.WorkIsActive(WorkTypeDefOf.Research))
             {
                 Thing researchBench = target.Thing;
-
-                __result = new FloatMenuOption("PrioritizeGeneric".Translate(researchBench.Label).CapitalizeFirst(), () =>
+                Job job = JobMaker.MakeJob(JobDefOf.Research, bench);
+                __result = new FloatMenuOption("PrioritizeGeneric".Translate(job.def.reportString).CapitalizeFirst(), () =>
                 {
-                    Job job = JobMaker.MakeJob(JobDefOf.Research, bench);
+
                     if (job != null)
                     {
                         job.playerForced = true;
