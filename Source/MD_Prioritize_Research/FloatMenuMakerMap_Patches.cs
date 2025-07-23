@@ -1,45 +1,131 @@
 using HarmonyLib;
 using RimWorld;
-using System.Collections.Generic;
-using System.Reflection.Emit;
-using System;
-using Verse.AI;
 using Verse;
+using Verse.AI;
+using System;
+using System.Collections.Generic;
+using System.Linq;
 
-[HarmonyPatch(typeof(FloatMenuOptionProvider_WorkGivers), "GetSingleOptionFor")]
-public static class GetWorkGiverOption_Transpiler_Patch_Final
+public static class Global
 {
-    [HarmonyTranspiler]
-    public static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions)
+    public static bool stopRn;
+    public class ResearchJobEnforcer : MapComponent
     {
-        var codes = new List<CodeInstruction>(instructions);
-        bool patched = false;
+        public Pawn pawn;
+        public Building_ResearchBench bench;
 
+        public ResearchJobEnforcer(Map map) : base(map) { }
 
-        for (int i = 0; i < codes.Count - 2; i++)
+        public void SetTarget(Pawn p, Building_ResearchBench b)
         {
-            // Pattern: ldfld Verse.JobDef def -> ldsfld Verse.JobDef Research -> bne.un.s
-            if (codes[i].LoadsField(AccessTools.Field(typeof(Job), "def")) &&
-                codes[i + 1].LoadsField(AccessTools.Field(typeof(JobDefOf), "Research")) &&
-                codes[i + 2].opcode == OpCodes.Bne_Un_S)
+            pawn = p;
+            bench = b;
+        }
+
+        public override void MapComponentTick()
+        {
+            if (stopRn)
             {
-                Log.Message($"[KB_Prioritize_Research] Found research check pattern at index {i}, patching...");
+                pawn = null;
+                bench = null;
+                stopRn = false;
+                return;
+            }
 
-                // Replace the JobDefOf.Research with null to make the comparison always false
-                // This effectively removes the research restriction
-                codes[i + 1] = new CodeInstruction(OpCodes.Ldnull);
+            if (pawn == null || bench == null || pawn.Dead || !pawn.Spawned)
+                return;
 
-                patched = true;
-                Log.Message("[KB_Prioritize_Research] Successfully patched research restriction!");
-                break;
+            if (pawn.CurJobDef != JobDefOf.Research)
+            {
+                var job = JobMaker.MakeJob(JobDefOf.Research, bench);
+                job.playerForced = true;
+                job.checkOverrideOnExpire = true;
+                job.playerInterruptedForced = true;
+                job.count = 5134;
+                pawn.jobs.ClearQueuedJobs();
+                pawn.jobs.TryTakeOrderedJob(job);
             }
         }
+    }
 
-        if (!patched)
+    [HarmonyPatch(typeof(PriorityWork), nameof(PriorityWork.GetGizmos))]
+    public static class Patch_PriorityWork_GetGizmos
+    {
+        public static void Postfix(PriorityWork __instance, ref IEnumerable<Gizmo> __result)
         {
-            Log.Error("[KB_Prioritize_Research] Failed to find research check pattern!");
-        }
+            var list = __result.ToList();
 
-        return codes;
+            for (int i = 0; i < list.Count; i++)
+            {
+                if (list[i] is Command_Action ca &&
+                    ca.defaultLabel == "CommandClearPrioritizedWork".Translate())
+                {
+                    var originalAction = ca.action;
+
+                    ca.action = () =>
+                    {
+                        stopRn = true;
+
+                        originalAction?.Invoke();
+                    };
+
+                    list[i] = ca;
+                    break;
+                }
+            }
+
+            __result = list;
+        }
+    }
+    [HarmonyPatch(typeof(FloatMenuOptionProvider_WorkGivers), "GetWorkGiverOption", new Type[] {
+    typeof(Pawn), typeof(WorkGiverDef), typeof(LocalTargetInfo), typeof(FloatMenuContext)
+})]
+    public static class Patch_Research_GetSingleOption_Prefix
+    {
+
+        public static bool Prefix(
+            ref FloatMenuOption __result,
+            Pawn pawn,
+            WorkGiverDef workGiver,
+            LocalTargetInfo target,
+            FloatMenuContext context)
+        {
+            if (pawn == null || workGiver == null || target.Thing == null)
+                return true;
+
+            if (target.Thing is not Building_ResearchBench bench)
+                return true;
+
+            if (!pawn.WorkTagIsDisabled(WorkTags.Intellectual) &&
+                pawn.workSettings.WorkIsActive(WorkTypeDefOf.Research))
+            {
+                Thing researchBench = target.Thing;
+
+                __result = new FloatMenuOption("PrioritizeGeneric".Translate(researchBench.Label).CapitalizeFirst(), () =>
+                {
+                    Job job = JobMaker.MakeJob(JobDefOf.Research, bench);
+                    if (job != null)
+                    {
+                        job.playerForced = true;
+                        job.checkOverrideOnExpire = true;
+                        job.playerInterruptedForced = true;
+                        job.count = 5134;
+                        pawn.jobs.ClearQueuedJobs();
+                        pawn.jobs.TryTakeOrderedJobPrioritizedWork(job, workGiver.Worker, context.ClickedCell);
+
+                        pawn.Map.GetComponent<ResearchJobEnforcer>().pawn = pawn;
+                        pawn.Map.GetComponent<ResearchJobEnforcer>().bench = bench;
+                    }
+                });
+
+                return false;
+            }
+
+
+            return true;
+        }
     }
 }
+
+
+
