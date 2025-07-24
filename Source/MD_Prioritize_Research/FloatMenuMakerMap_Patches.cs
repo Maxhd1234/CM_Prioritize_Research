@@ -5,9 +5,15 @@ using Verse.AI;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
+using static UnityEngine.GraphicsBuffer;
+using static Global;
+
 
 public static class Global
 {
+
+
     public static bool stopRn;
     public class ResearchJobEnforcer : MapComponent
     {
@@ -55,7 +61,7 @@ public static class Global
         {
             if (newJob.playerForced && newJob.count != 5134)
             {
-                Global.stopRn = true;
+                stopRn = true;
             }
         }
     }
@@ -90,6 +96,9 @@ public static class Global
             __result = list;
         }
     }
+
+
+ 
     [HarmonyPatch(typeof(FloatMenuOptionProvider_WorkGivers), "GetWorkGiverOption", new Type[] {
     typeof(Pawn), typeof(WorkGiverDef), typeof(LocalTargetInfo), typeof(FloatMenuContext)
 })]
@@ -97,13 +106,22 @@ public static class Global
     {
 
         public static bool Prefix(
-            ref FloatMenuOption __result,
-            Pawn pawn,
-            WorkGiverDef workGiver,
-            LocalTargetInfo target,
-            FloatMenuContext context)
+    ref FloatMenuOption __result,
+    Pawn pawn,
+    WorkGiverDef workGiver,
+    LocalTargetInfo target,
+    FloatMenuContext context)
         {
             if (pawn == null || workGiver == null || target.Thing == null)
+                return true;
+
+            var field = AccessTools.Field(typeof(ResearchManager), "currentProj");
+            ResearchProjectDef current = (ResearchProjectDef)field.GetValue(Find.ResearchManager);
+
+            if (current == null)
+                return true;
+
+            if (workGiver.defName != "Research")
                 return true;
 
             if (target.Thing is not Building_ResearchBench bench)
@@ -112,32 +130,33 @@ public static class Global
             if (!pawn.WorkTagIsDisabled(WorkTags.Intellectual) &&
                 pawn.workSettings.WorkIsActive(WorkTypeDefOf.Research))
             {
-                Thing researchBench = target.Thing;
-                Job job = JobMaker.MakeJob(JobDefOf.Research, bench);
-                __result = new FloatMenuOption("PrioritizeGeneric".Translate(job.def.reportString).CapitalizeFirst(), () =>
+                __result = new FloatMenuOption("PrioritizeGeneric".Translate(workGiver.Worker.def.label, "").CapitalizeFirst(), () =>
                 {
-
+                    Job job = JobMaker.MakeJob(JobDefOf.Research, bench);
                     if (job != null)
                     {
                         job.playerForced = true;
-                        job.checkOverrideOnExpire = true;
-                        job.playerInterruptedForced = true;
                         job.count = 5134;
                         pawn.jobs.ClearQueuedJobs();
                         pawn.jobs.TryTakeOrderedJobPrioritizedWork(job, workGiver.Worker, context.ClickedCell);
 
-                        pawn.Map.GetComponent<ResearchJobEnforcer>().pawn = pawn;
-                        pawn.Map.GetComponent<ResearchJobEnforcer>().bench = bench;
+                        var enforcer = pawn.Map.GetComponent<ResearchJobEnforcer>();
+                        if (enforcer != null)
+                        {
+                            enforcer.pawn = pawn;
+                            enforcer.bench = bench;
+                        }
                     }
                 });
 
-                return false;
+                return false; 
             }
-
 
             return true;
         }
+
     }
+    
 }
 
 
