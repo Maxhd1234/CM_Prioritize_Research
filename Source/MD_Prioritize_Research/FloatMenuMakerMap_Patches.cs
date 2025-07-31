@@ -5,54 +5,75 @@ using Verse.AI;
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Reflection;
-using static UnityEngine.GraphicsBuffer;
-using static Global;
 
 
 public static class Global
 {
 
-
-    public static bool stopRn;
     public class ResearchJobEnforcer : MapComponent
     {
         public Pawn pawn;
         public Building_ResearchBench bench;
+        public bool stopResearch = true;
 
         public ResearchJobEnforcer(Map map) : base(map) { }
 
+        public void StopResearch()
+        {
+            stopResearch = true;
+            if (pawn != null)
+            {
+                pawn.jobs.ClearQueuedJobs();
+                pawn.jobs.EndCurrentJob(JobCondition.InterruptForced);
+            }
+            pawn = null;
+            bench = null;
+        }
+
         public void SetTarget(Pawn p, Building_ResearchBench b)
         {
-            pawn = p;
-            bench = b;
+            if (p != null && b != null && p.Map == map && b.Map == map)
+            {
+                pawn = p;
+                bench = b;
+                stopResearch = false;
+            }
         }
 
         public override void MapComponentTick()
         {
-            if (stopRn)
+            if (!stopResearch)
             {
-                pawn = null;
-                bench = null;
-                stopRn = false;
-                return;
-            }
+                if (pawn == null || bench == null || pawn.Dead || !pawn.Spawned || pawn.Map != map || bench.Map != map || bench.Destroyed)
+                {
+                    Clear();
+                    return;
+                }
 
-            if (pawn == null || bench == null || pawn.Dead || !pawn.Spawned)
-                return;
+                if (pawn.jobs == null || pawn.CurJobDef == null)
+                {
+                    Clear();
+                    return;
+                }
 
-            if (pawn.CurJobDef != JobDefOf.Research)
-            {
-                var job = JobMaker.MakeJob(JobDefOf.Research, bench);
-                job.playerForced = true;
-                job.checkOverrideOnExpire = true;
-                job.playerInterruptedForced = true;
-                job.count = 5134;
-                pawn.jobs.ClearQueuedJobs();
-                pawn.jobs.TryTakeOrderedJob(job);
+                if (pawn.CurJobDef != JobDefOf.Research)
+                {
+                    var job = JobMaker.MakeJob(JobDefOf.Research, bench);
+                    job.playerForced = true;
+                    job.count = 5134;
+                    pawn.jobs.ClearQueuedJobs();
+                    pawn.jobs.TryTakeOrderedJob(job);
+                }
             }
         }
+
+        private void Clear()
+        {
+            pawn = null;
+            bench = null;
+        }
     }
+
 
     [HarmonyPatch(typeof(Pawn_JobTracker), nameof(Pawn_JobTracker.StartJob))]
     public static class Patch_JobTracker_StartJob
@@ -61,17 +82,25 @@ public static class Global
         {
             if (newJob.playerForced && newJob.count != 5134)
             {
-                stopRn = true;
+                var pawn = Traverse.Create(__instance).Field("pawn").GetValue<Pawn>();
+                if (pawn != null)
+                {
+                    var enforcer = pawn.Map.GetComponent<ResearchJobEnforcer>();
+                    if (enforcer != null && !enforcer.stopResearch)
+                    {
+                        enforcer.StopResearch();
+                    }
+                }
             }
         }
     }
-
 
     [HarmonyPatch(typeof(PriorityWork), nameof(PriorityWork.GetGizmos))]
     public static class Patch_PriorityWork_GetGizmos
     {
         public static void Postfix(PriorityWork __instance, ref IEnumerable<Gizmo> __result)
         {
+
             var list = __result.ToList();
 
             for (int i = 0; i < list.Count; i++)
@@ -83,7 +112,22 @@ public static class Global
 
                     ca.action = () =>
                     {
-                        stopRn = true;
+                        var pawn = Traverse.Create(__instance).Field("pawn").GetValue<Pawn>();
+                        if (pawn != null)
+                        {
+                            pawn.jobs.EndCurrentJob(JobCondition.InterruptForced, true, true);
+                            var enforcer = pawn.Map.GetComponent<ResearchJobEnforcer>();
+                            if (enforcer != null)
+                            {
+                                if (enforcer.stopResearch == false)
+                                    enforcer.StopResearch();
+                            }
+                            else
+                            {
+                                Log.Error("Enforcer is Null");
+                            }
+                        }
+                        __instance.ClearPrioritizedWorkAndJobQueue();
 
                         originalAction?.Invoke();
                     };
@@ -98,7 +142,9 @@ public static class Global
     }
 
 
- 
+
+
+
     [HarmonyPatch(typeof(FloatMenuOptionProvider_WorkGivers), "GetWorkGiverOption", new Type[] {
     typeof(Pawn), typeof(WorkGiverDef), typeof(LocalTargetInfo), typeof(FloatMenuContext)
 })]
@@ -143,8 +189,11 @@ public static class Global
                         var enforcer = pawn.Map.GetComponent<ResearchJobEnforcer>();
                         if (enforcer != null)
                         {
-                            enforcer.pawn = pawn;
-                            enforcer.bench = bench;
+                            enforcer.SetTarget(pawn, bench);
+                        }
+                        else
+                        {
+                            Log.Error("Enforcer is Null");
                         }
                     }
                 });
